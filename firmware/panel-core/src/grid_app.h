@@ -162,7 +162,7 @@ static void touchPump() {
   if (!down && !ui.down) return;
   const uint32_t ms = millis();
   lastActiveMs = ms;
-  if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; return; }
+  if ((!fleet->have || linkState() != LinkState::Live) && !board.layout->touchesOffline()) { ui.down = false; return; }
   send(board.layout->touch(ui, fleet->fleet, down, x, y, scope(), ms));
   dirty = true;
 }

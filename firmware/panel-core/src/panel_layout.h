@@ -120,4 +120,7 @@ class PanelLayout {
   virtual void button(PanelUi& ui, const Fleet& f) const = 0;
   // The deck's Result for ui.cmdSeq.
   virtual void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const = 0;
+  // True: touch() also runs while the deck isn't there (a settings screen on
+  // the board; status_bar.h). The layout then ignores what needs the deck.
+  virtual bool touchesOffline() const { return false; }
 };

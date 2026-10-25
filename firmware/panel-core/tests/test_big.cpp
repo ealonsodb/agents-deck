@@ -1,6 +1,7 @@
 // layout_big.h: the Flutter desk panel at 2/3 for the 4" board. Geometry,
 // hit-testing, the card's buttons (stop arms on the first tap), the shared
-// prompt layout (choose, then send), and every screen inside the frame.
+// prompt layout (choose, then send), every screen inside the frame, and the
+// 7" board's wide grid.
 #include <assert.h>
 
 #include <vector>
@@ -32,6 +33,46 @@ static DeckCommand tap(const BigSpec& S, PanelUi& ui, const Fleet& f, const Rect
   bigTouch(ui, S, f, true, x, y, sc, ms);
   bigTouch(ui, S, f, true, x, y, sc, ms + 40);
   return bigTouch(ui, S, f, false, 0, 0, sc, ms + 60);
+}
+
+// Every screen at every scope and link state stays inside the frame.
+static void staysInside(const BigSpec& S) {
+  static DeckFleet d;
+  assert(fixture::load(FIXTURE, d));
+  const BigPanel P(S);
+  const int PAD = 2 * S.w;
+  const uint16_t GUARD = 0xDEAD;
+  std::vector<uint16_t> mem(S.w * S.h + 2 * PAD, GUARD);
+  Canvas c{mem.data() + PAD, S.w, S.h};
+  auto guards = [&] {
+    for (int i = 0; i < PAD; i++)
+      if (mem[i] != GUARD || mem[PAD + S.w * S.h + i] != GUARD) return false;
+    return true;
+  };
+  for (LinkState ls : {LinkState::Connecting, LinkState::Unapproved, LinkState::Live, LinkState::Lost})
+    for (DeckScope sc : {DeckScope::View, DeckScope::Act, DeckScope::Admin}) {
+      PanelUi ui;
+      PanelInput in{&d.fleet, ls, "waveshare-touch-a-very-long-device-name-0123456789", sc, 300, d.fleet.serverTime + 60,
+                    &ui, 125};
+      P.draw(c, in);
+      assert(guards());
+      in.fleet = nullptr;
+      P.draw(c, in);
+      assert(guards());
+      in.fleet = &d.fleet;
+      for (int i = 0; i < d.fleet.count; i++) {
+        bigOpen(ui, d.fleet, i);
+        for (Screen s : {Screen::Card, Screen::Prompt}) {
+          ui.screen = s;
+          ui.stopArmedUntil = 1000;
+          for (uint32_t ms : {0u, 450u}) {
+            in.ms = ms;
+            P.draw(c, in);
+            assert(guards());
+          }
+        }
+      }
+    }
 }
 
 int main() {
@@ -196,44 +237,9 @@ int main() {
   }
 
   // ---- every screen at every scope and link state stays inside the frame
-  {
-    static DeckFleet d;
-    assert(fixture::load(FIXTURE, d));
-    const BigPanel P(S);
-    const int PAD = 2 * S.w;
-    const uint16_t GUARD = 0xDEAD;
-    std::vector<uint16_t> mem(S.w * S.h + 2 * PAD, GUARD);
-    Canvas c{mem.data() + PAD, S.w, S.h};
-    auto guards = [&] {
-      for (int i = 0; i < PAD; i++)
-        if (mem[i] != GUARD || mem[PAD + S.w * S.h + i] != GUARD) return false;
-      return true;
-    };
-    for (LinkState ls : {LinkState::Connecting, LinkState::Unapproved, LinkState::Live, LinkState::Lost})
-      for (DeckScope sc : {DeckScope::View, DeckScope::Act, DeckScope::Admin}) {
-        PanelUi ui;
-        PanelInput in{&d.fleet, ls, "waveshare-touch-a-very-long-device-name-0123456789", sc, 300, d.fleet.serverTime + 60,
-                      &ui, 125};
-        P.draw(c, in);
-        assert(guards());
-        in.fleet = nullptr;
-        P.draw(c, in);
-        assert(guards());
-        in.fleet = &d.fleet;
-        for (int i = 0; i < d.fleet.count; i++) {
-          bigOpen(ui, d.fleet, i);
-          for (Screen s : {Screen::Card, Screen::Prompt}) {
-            ui.screen = s;
-            ui.stopArmedUntil = 1000;
-            for (uint32_t ms : {0u, 450u}) {
-              in.ms = ms;
-              P.draw(c, in);
-              assert(guards());
-            }
-          }
-        }
-      }
-  }
+  staysInside(S);
+  staysInside(specBig800());
+
   // ---- the 4"'s card is the big panel's (the desk panel's detail, its "focus terminal" button), not
   // the small boards' card that a 480 x 480 SquareSpec would draw
   {
@@ -288,6 +294,21 @@ int main() {
       BigPanel(S).draw(c, in);
     }
   }
+  // ---- the 7" (800 x 480): the same sizes, the grid's cells as wide as the screen allows
+  {
+    const BigSpec W = specBig800();
+    assert(W.w == 800 && W.h == 480 && W.k == S.k && W.tileScale == S.tileScale);
+    const BigGrid one = bigGrid(W, 1), two = bigGrid(W, 2);
+    assert(one.cellH == 113 && one.cell > 180);                // wide cells, the 4"'s height
+    const Rect first = bigCell(one, 0), last = bigCell(one, 15);
+    assert(first.x >= 5 && last.x + last.w <= W.w - 5 && last.y + last.h <= W.h - 5);
+    for (int cell = 0; cell < 16; cell++) assert(bigCell(two, cell).y + bigCell(two, cell).h <= two.bars.y);
+    Fleet f = fleetOf({mk("a", 0, Status::Idle), mk("w", 15, Status::Waiting)});
+    PanelUi ui;
+    const Rect r = bigCell(one, 15);
+    assert(bigHit(W, ui, f, r.x + r.w - 4, r.y + r.h - 4, DeckScope::Act).agent == 1);   // the cell's far corner
+  }
+
   printf("ok  big layout\n");
   return 0;
 }
