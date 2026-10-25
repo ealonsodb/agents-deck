@@ -38,6 +38,9 @@ type Config struct {
 	// Cmux: mirror Claude agents running in cmux onto the board (default on;
 	// cmux's socket access must be Automation).
 	Cmux *bool `json:"cmux"`
+	// AutoLive: put every Claude session started by hand on the board without
+	// adding it (default off). One you remove stays off until you add it again.
+	AutoLive bool `json:"autoLive"`
 	// CodexWindowHours: threads updated within this many hours are shown (default 6).
 	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).
@@ -356,16 +359,13 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 		inner = []string{d.Agentctl, "sim-agent", "--dir", abs, "--speed", fmt.Sprint(speed),
 			"--patience", fmt.Sprint(patience), "--transcript", e.Transcript}
 	case "shell":
-		inner = []string{os.Getenv("SHELL")}
-		if inner[0] == "" {
-			inner[0] = "/bin/zsh"
-		}
+		inner = []string{loginShell()}
 		e.A.Status = model.Idle
 	default:
 		return "", fmt.Errorf("unknown tool %q", tool)
 	}
 	// A login shell gives the agent the user's normal PATH and environment.
-	argv := []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}
+	argv := []string{loginShell(), "-lc", "exec " + shellJoin(inner)}
 	if tool == "claude" {
 		argv = d.claudeArgv(explicitTitle(*e), accountOf(*e), []string{"--session-id", e.SessionID})
 	}
@@ -647,9 +647,20 @@ func shellJoin(argv []string) string {
 	return strings.Join(q, " ")
 }
 
+// loginShell is the user's shell ($SHELL), else the first of zsh (macOS's
+// default), bash and sh that this system has.
+func loginShell() string {
+	for _, sh := range []string{os.Getenv("SHELL"), "/bin/zsh", "/bin/bash"} {
+		if st, err := os.Stat(sh); sh != "" && err == nil && !st.IsDir() {
+			return sh
+		}
+	}
+	return "/bin/sh"
+}
+
 // LookPathLogin resolves a command through the user's login shell PATH.
 func LookPathLogin(name string) string {
-	out, err := exec.Command("/bin/zsh", "-lc", "command -v "+shellJoin([]string{name})).Output()
+	out, err := exec.Command(loginShell(), "-lc", "command -v "+shellJoin([]string{name})).Output()
 	if err != nil {
 		return ""
 	}
