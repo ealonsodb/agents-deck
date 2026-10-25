@@ -339,8 +339,10 @@ static void result(uint32_t seq, uint32_t code) {
 }
 
 #if DECK_LINK_HAS_TLS13
-static uint32_t wifiConfig(deck_link_t* c, const char* ssid, const char* password, bool forget) {
-  if (c != usb) return 403;   // credentials come over the cable only
+// Saves (or forgets) the network and tries it. Callers say where the
+// credentials came from: the cable (wifiConfig) or the board's own screen
+// (localJoin), both of which need the board in your hand. Never Wi-Fi.
+static uint32_t storeWifi(const char* ssid, const char* password, bool forget) {
   if (!kvOk) return 500;
   if (forget) {
     if (!deck_store_clear_wifi(&kv)) return 500;
@@ -372,6 +374,11 @@ static uint32_t wifiConfig(deck_link_t* c, const char* ssid, const char* passwor
   if (hooks.toast) hooks.toast("trying Wi-Fi\xE2\x80\xA6");
   statusDue = true;
   return 204;
+}
+
+static uint32_t wifiConfig(deck_link_t* c, const char* ssid, const char* password, bool forget) {
+  if (c != usb) return 403;   // credentials come over the cable only
+  return storeWifi(ssid, password, forget);
 }
 
 static void testDone(agentsdeck_link_v1_WifiState r) {
@@ -417,6 +424,133 @@ static void begin(deck_link_t* usbCore, const deck_link_config_t& cfg, const Hoo
   WiFi.onEvent(onWifiEvent);
 #else
   (void)cfg;
+#endif
+}
+
+// ---------------------------------------------------------------- the board's own screen
+// A settings screen on the board (status_bar.h) may set the network: like
+// the cable, it needs the board in your hand. Nothing here is reachable over
+// the network.
+
+// What the settings screen shows about Wi-Fi.
+struct LocalWifi {
+  char ssid[33] = "";      // the saved network, "" for none
+  bool capable = false;    // this firmware has Wi-Fi (TLS 1.3)
+  bool paired = false;     // it has a Wi-Fi certificate (paired over USB)
+  bool testing = false;    // trying a network it was just given
+  NetVia via = NetVia::Usb;
+  NetPhase phase = NetPhase::Off;
+  // The last try while on USB: 0 none, 1 it worked, 2 wrong password, 3 not found, 4 failed.
+  uint8_t lastTest = 0;
+  char ip[16] = "";
+  int8_t rssi = 0;
+};
+
+static LocalWifi localInfo() {
+  LocalWifi o;
+  o.capable = DECK_LINK_HAS_TLS13;
+  o.paired = hasCert();
+  o.via = plan.view.via;
+  o.phase = plan.view.phase;
+  snprintf(o.ssid, sizeof o.ssid, "%s", wifi.ssid);
+#if DECK_LINK_HAS_TLS13
+  o.testing = testing;
+  if (o.via == NetVia::Wifi && WiFi.isConnected()) {
+    snprintf(o.ip, sizeof o.ip, "%s", WiFi.localIP().toString().c_str());
+    o.rssi = (int8_t)WiFi.RSSI();
+  } else if (testedIp[0]) {
+    snprintf(o.ip, sizeof o.ip, "%s", testedIp);
+    o.rssi = testedRssi;
+  }
+  switch (testResult) {
+    case agentsdeck_link_v1_WifiState_WIFI_WRONG_PASSWORD: o.lastTest = 2; break;
+    case agentsdeck_link_v1_WifiState_WIFI_NO_NETWORK:     o.lastTest = 3; break;
+    case agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED:    o.lastTest = testedIp[0] ? 1 : 0; break;
+    default:                                               o.lastTest = 4; break;
+  }
+#endif
+  return o;
+}
+
+// Save the network and try it. False: refused (bad length, no storage, no Wi-Fi here).
+static bool localJoin(const char* ssid, const char* password) {
+#if DECK_LINK_HAS_TLS13
+  return storeWifi(ssid, password ? password : "", false) == 204;
+#else
+  (void)ssid;
+  (void)password;
+  return false;
+#endif
+}
+
+static void localForget() {
+#if DECK_LINK_HAS_TLS13
+  (void)storeWifi("", "", true);
+#endif
+}
+
+// Networks in range: start a scan (it runs in the background), then poll.
+#if DECK_LINK_HAS_TLS13
+static bool scanRadio = false;   // the scan turned the radio on: off again after it
+#endif
+
+static void scanStart() {
+#if DECK_LINK_HAS_TLS13
+  if (WiFi.scanComplete() == WIFI_SCAN_RUNNING) return;
+  WiFi.scanDelete();
+  if (!wifiOn) {
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    scanRadio = true;
+  }
+  WiFi.scanNetworks(true /* async */, false /* hidden */);
+#endif
+}
+
+// The networks found (up to max), strongest first with each name once; -1 while scanning.
+static int scanResults(char (*ssids)[33], int8_t* rssi, bool* secure, int max) {
+#if DECK_LINK_HAS_TLS13
+  const int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) return -1;
+  int count = 0;
+  for (int i = 0; i < n; i++) {
+    const String name = WiFi.SSID(i);
+    if (!name.length() || name.length() > 32) continue;
+    int at = -1;
+    for (int j = 0; j < count; j++)
+      if (!strcmp(ssids[j], name.c_str())) at = j;
+    const int8_t r = (int8_t)WiFi.RSSI(i);
+    if (at >= 0) {
+      if (r > rssi[at]) rssi[at] = r;
+      continue;
+    }
+    int k;
+    if (count < max) {
+      k = count++;
+    } else {                                    // full: replace the weakest if this one is stronger
+      if (rssi[max - 1] >= r) continue;
+      k = max - 1;
+    }
+    while (k > 0 && rssi[k - 1] < r) {
+      memcpy(ssids[k], ssids[k - 1], 33);
+      rssi[k] = rssi[k - 1];
+      secure[k] = secure[k - 1];
+      k--;
+    }
+    snprintf(ssids[k], 33, "%s", name.c_str());
+    rssi[k] = r;
+    secure[k] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+  }
+  WiFi.scanDelete();
+  if (scanRadio && !wifiOn) WiFi.mode(WIFI_OFF);
+  scanRadio = false;
+  return count;
+#else
+  (void)ssids;
+  (void)rssi;
+  (void)secure;
+  (void)max;
+  return 0;
 #endif
 }
 

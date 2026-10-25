@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|freenove28|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|lcd7|amoled18|t4s3|freenove28|orbit|dial|spring|spring28|selftest28|selftest21]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -23,6 +23,7 @@
 #include "layout_147.h"
 #include "layout_big.h"
 #include "layout_square.h"
+#include "status_bar.h"
 #include "fixture.h"
 #include "round_shots.h"
 
@@ -178,16 +179,40 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
 }
 
 // The big panels: every screen at one scale.
+// With bar, under a status bar (status_bar.h) with a battery at 82% and
+// settings over made-up networks.
+static int fakeBattery() { return 82; }
+static ShadeWifi fakeWifi() {
+  ShadeWifi w;
+  snprintf(w.ssid, sizeof w.ssid, "studio-5g");
+  w.capable = w.paired = true;
+  w.lastTest = 1;
+  snprintf(w.ip, sizeof w.ip, "192.0.2.24");
+  w.rssi = -52;
+  return w;
+}
+static int fakeNetworks(ShadeNet* out, int max) {
+  static const ShadeNet kNets[] = {{"studio-5g", -48, true}, {"studio", -55, true}, {"guest", -63, false},
+                                   {"printer-setup", -70, false}, {"neighbour-2g", -82, true}};
+  int n = 0;
+  for (const ShadeNet& net : kNets)
+    if (n < max) out[n++] = net;
+  return n;
+}
+static bool fakeJoin(const char*, const char*) { return true; }
+static const ShadeHooks kFakeShade{fakeWifi, [] {}, fakeNetworks, fakeJoin, [] {}, [] {}};
 static int renderBig(const std::string& dir, const BigSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
-                     int64_t now) {
+                     int64_t now, bool bar = false) {
   const BigPanel P(S);
-  std::vector<uint16_t> buf(S.w * S.h);
-  Canvas c{buf.data(), S.w, S.h};
+  const StatusBar B(P, fakeBattery, &kFakeShade);
+  const PanelLayout& L = bar ? (const PanelLayout&)B : (const PanelLayout&)P;
+  std::vector<uint16_t> buf(L.width() * L.height());
+  Canvas c{buf.data(), L.width(), L.height()};
   const Fleet& f = deck.fleet;
   PanelUi ui;
   PanelInput in{&f, LinkState::Live, device, DeckScope::Admin, ms, now, &ui, 0};
   auto shot = [&](const char* name) {
-    P.draw(c, in);
+    L.draw(c, in);
     writePpm(dir + "/" + name + ".ppm", c);
   };
   shot("home");
@@ -270,10 +295,50 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
     in.fleet = n.f;
     shot(n.name);
   }
+  if (bar) {                                       // the settings, pulled down from the bar
+    in.link = LinkState::Live;
+    in.fleet = &f;
+    in.silentSec = 0;
+    bigHome(ui);
+    const int W = B.width(), H = B.height();
+    B.touch(ui, f, true, 400, 10, DeckScope::Admin, 0);
+    B.touch(ui, f, true, 400, 200, DeckScope::Admin, 40);
+    shot("settings-pull");
+    B.touch(ui, f, false, 400, 200, DeckScope::Admin, 60);
+    shot("settings");
+    auto tap = [&](Ctl id, int index = -1) {
+      Control cs[64];
+      const int n = shadeControls(B.shade(), fakeWifi(), W, StatusBar::kHeight, H, cs, 64);
+      for (int i = 0; i < n; i++)
+        if (cs[i].id == id && (index < 0 || cs[i].index == index)) {
+          const int x = cs[i].r.x + cs[i].r.w / 2, y = cs[i].r.y + cs[i].r.h / 2;
+          B.touch(ui, f, true, x, y, DeckScope::Admin, 100);
+          B.touch(ui, f, false, x, y, DeckScope::Admin, 140);
+          return;
+        }
+    };
+    tap(Ctl::Restart);
+    in.ms = 200;
+    shot("settings-restart-armed");
+    in.ms = ms;
+    tap(Ctl::Choose);
+    shot("settings-networks");                     // the first frame picks up the scan
+    shot("settings-networks");
+    tap(Ctl::Net, 1);
+    for (const char* k = "hunter"; *k; k++) tap(Ctl::Key, (unsigned char)*k);
+    tap(Ctl::Mode);
+    tap(Ctl::Key, '2');
+    tap(Ctl::Key, '2');
+    shot("settings-password-symbols");
+    tap(Ctl::Mode);
+    shot("settings-password");
+  }
   return 0;
 }
 
 int main(int argc, char** argv) {
+  setenv("TZ", "UTC0", 1);                         // the status bar's clock: the same pictures anywhere
+  tzset();
   if (argc < 3) {
     fprintf(stderr, "usage: render <state.json> <outdir> [ms]\n");
     return 2;
@@ -292,6 +357,8 @@ int main(int argc, char** argv) {
   const int64_t now = (fleet.serverTime ? fleet.serverTime : 1791421323) + 754;
   const std::string layout = argc > 4 ? argv[4] : "147";
   if (layout == "lcd4") return renderBig(dir, specBig480(), "waveshare-touch-lcd-2a5390", deck, ms, now);
+  if (layout == "lcd7")
+    return renderBig(dir, specBig800(StatusBar::kHeight), "waveshare-touch-lcd-7-5e1f00", deck, ms, now, true);
   if (layout == "lcd4-small") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
   if (layout == "amoled18") return renderSquare(dir, specAmoled18(), "waveshare-touch-amol-fea2ac", deck, ms, now);
   if (layout == "t4s3") return renderSquare(dir, specT4S3(), "t4s3-panel-a1b2c3", deck, ms, now);
@@ -316,7 +383,7 @@ int main(int argc, char** argv) {
   if (layout == "selftest21")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-21", "tca9554 ok" DECK_DOT "cst820 ok", 16000000);
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, freenove28, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, lcd4, lcd7, amoled18, t4s3, freenove28, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
     return 2;
   }
 

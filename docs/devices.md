@@ -16,6 +16,7 @@ draws the same pixels as the boards, from the made-up fleet in
 |---|---|---|---|---|---|---|
 | <img src="images/devices/round-28-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.8C](#waveshare-esp32-s3-touch-lcd-28c-round-28) | 2.8″ round, 480×480 | the spring: 9 agents round the ring | yes, multi-touch | yes | [`waveshare-touch-lcd-28c`](../firmware/devices/waveshare-touch-lcd-28c) |
 | <img src="images/devices/round-21-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.1](#waveshare-esp32-s3-touch-lcd-21-round-21) | 2.1″ round, 480×480 | the spring: 7 agents round the ring | yes | yes | [`waveshare-touch-lcd-21`](../firmware/devices/waveshare-touch-lcd-21) |
+| <img src="images/devices/lcd7-home.png" width="120" alt=""> | [Waveshare ESP32-S3-Touch-LCD-7](#waveshare-esp32-s3-touch-lcd-7-wide-7) | 7″ wide, 800×480 | the deck's 4×4 grid, like the desk panel | yes | yes, not tested yet | [`waveshare-touch-lcd-7`](../firmware/devices/waveshare-touch-lcd-7) |
 | <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | experimental | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
@@ -114,6 +115,28 @@ looks like the desk panel and the web board.
   (V1–V3) can only switch the backlight on and off, not dim it.
 - **Get one:** [Waveshare ESP32-S3-Touch-LCD-4](https://www.waveshare.com/esp32-s3-touch-lcd-4.htm)
   (pick the touch version; about $33 in Waveshare's shop, October 2026). Details: [the board's README](../firmware/devices/waveshare-touch-lcd-4/README.md).
+
+## Waveshare ESP32-S3-Touch-LCD-7 (wide 7″)
+
+The 4″ board's layout on a wide 7″ screen, under a status bar. Every size is the same as on the
+4″, and the grid's cells grow wider.
+
+| grid | card | permission | joining Wi-Fi |
+|---|---|---|---|
+| <img src="images/devices/lcd7-home.png" width="240" alt="the 4x4 grid with wide tiles"> | <img src="images/devices/lcd7-card.png" width="240" alt="an agent's card with numbers and buttons"> | <img src="images/devices/lcd7-permission.png" width="240" alt="an orange permission card"> | <img src="images/devices/lcd7-wifi.png" width="240" alt="the joining Wi-Fi notice"> |
+
+- **What's special:** the biggest screen. It shows the same as the 4″: tiles by slot, paged; the
+  card with tokens, cache, cost and turns; prompts where you pick an answer, then **send**. On
+  top, a status bar like a phone's: the time, who's working and who needs you, the cost and tokens,
+  how it's connected, and the battery if you wire one up. Pull it down for the settings: choose the
+  Wi-Fi network on the screen (with an on-screen keyboard), or restart the board.
+- **Gestures:** tap a tile for its card; swipe or tap the page bars to change page; swipe right to
+  go back. There's no button: BOOT shares its pin with the screen.
+- **Build:** the `idf5` build, for Wi-Fi. Plug it in by the port marked **UART**: the deck talks to it there, not on **USB**.
+- **Known issues:** tested on one board over the UART port; Wi-Fi to the deck isn't tested yet. The
+  backlight can only be switched on and off, not dimmed.
+- **Get one:** [Waveshare ESP32-S3-Touch-LCD-7](https://www.waveshare.com/esp32-s3-touch-lcd-7.htm).
+  Details: [the board's README](../firmware/devices/waveshare-touch-lcd-7/README.md).
 
 ## Waveshare ESP32-S3-Touch-AMOLED-1.8
 

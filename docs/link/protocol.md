@@ -256,6 +256,9 @@ From then on the connection carries the same binary frames as USB (Hello, Welcom
   soon as the device is revoked or pairs again. A revoked board fails the TLS handshake; the board
   shows "certificate rejected · pair again over USB".
 - `CertRequest` and `WifiConfig` are refused over Wi-Fi: pairing and credentials go over USB only.
+  A board with a settings screen of its own (the 7″ board) can also take a network typed on that
+  screen: like the cable, that needs the board in your hand. Nothing on the network can set one, and
+  Wi-Fi still needs the certificate paired over USB.
 - The deck pings every 5 s as usual and closes a Wi-Fi session that has been silent for 30 s.
 - `hosts` are tried in order: the `.local` name (mDNS on the board), then the addresses.
 

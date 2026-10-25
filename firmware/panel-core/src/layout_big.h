@@ -47,6 +47,7 @@ struct BigSpec {
   // Fonts for the Flutter sizes (at k): 30 bold, 22-24 bold, 19-20, 16-18, 13-15, 12.5.
   const Font *title, *heading, *body, *text, *label, *tileTitle, *tileMeta;
   int tileScale, subScale, cardScale, crewScale, noticeScale;
+  bool wide;                   // a landscape screen: the grid's cells fill its width
 };
 
 // A 4" 480 x 480 board: the desk panel at 2/3.
@@ -66,6 +67,18 @@ static inline BigSpec specBig480() {
   s.cardScale = 2;           // 54 px -> 36 px: exactly x2
   s.crewScale = 1;           // 36 px -> 24 px
   s.noticeScale = 5;         // 126 px -> 84 px: x5 (90)
+  return s;
+}
+
+// The 7" 800 x 480 board (Waveshare ESP32-S3-Touch-LCD-7): the 480 board's
+// sizes (the same height), the grid's cells stretched across the width. With
+// a status bar on top (status_bar.h) the layout gets the rest: 480 - top.
+static inline BigSpec specBig800(int top = 0) {
+  BigSpec s = specBig480();
+  s.name = "big800";
+  s.w = 800;
+  s.h = 480 - top;
+  s.wide = true;
   return s;
 }
 
@@ -102,7 +115,7 @@ static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false) {
   g.cell = (availW - 3 * g.gap) / 4;
   g.cellH = (availH - 3 * g.gap) / 4;
   if (pages < 2 && g.cellH > g.cell) g.cellH = g.cell;
-  if (g.cell > g.cellH && pages < 2) g.cell = g.cellH;
+  if (g.cell > g.cellH && pages < 2 && !S.wide) g.cell = g.cellH;
   const int gw = 4 * g.cell + 3 * g.gap, gh = 4 * g.cellH + 3 * g.gap;
   g.x0 = (S.w - gw) / 2;
   g.y0 = pad + (availH - gh) / 2;
